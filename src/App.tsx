@@ -1,33 +1,34 @@
-import { PAct , useState} from "./PAct.js";
+import { PAct , useState, useEffect} from "./PAct.js";
+
 
 export const App = () => {
-  // const myName = 'Arindam';
+  const [name, setName] = useState<string>('Arindam');
+  const [count, setCount] = useState<number>(0);
 
-  const [name, setName] = useState('Arindam');
-  const [count, setCount] = useState(0);
+  // ✅ Run every time
+  useEffect(() => {
+    console.log('Application always run!.');
+  });
 
-  const handleSetName = (e) => {
-    debugger;
-    setName(e.target.value);
-  }
+  // ✅ Run once when the component mounts
+  useEffect(() => {
+    console.log("Component mounted!");
+    return () => console.log("Component will unmount!"); // Cleanup function
+  }, []);
 
-  const handlePlusCount = () => {
-    debugger;
-    setCount(count + 1);
-  }
+  // ✅ Run every time `count` changes
+  useEffect(() => {
+    console.log(`Count changed: ${count.value}`);
+  }, [count.value]);
 
   return (
     <div draggable>
-      <h2>Hello {name}!</h2>
-      <p>I am a pargraph</p>
-      <input
-        type="text"
-        value={name}
-        onchange={(e) => handleSetName(e)}
-      />
-      <h2> Counter value: {count}</h2>
-      <button onclick={() => handlePlusCount()}>+1</button>
-      <button onclick={() => setCount(count - 1)}>-1</button>
+      <h2>Hello {name.value}!</h2>
+      <p>I am a paragraph</p>
+      <input type="text" value={name.value} onchange={(e) => setName(e.target.value)} />
+      <h2>Counter value: {count.value}</h2>
+      <button onclick={() => setCount(count.value + 1)}>+1</button>
+      <button onclick={() => setCount(count.value - 1)}>-1</button>
     </div>
   );
 };

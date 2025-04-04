@@ -56,26 +56,25 @@ let rootNode: HTMLElement;
         MLib.createElement('input',{type :"text"})));
     
         render(App, document.getElementById('myapp'));`
- */
-
-        
+ */        
 interface Renderable {
   (): VElement | string | number;
 }
 
-  /**
-   * Renders a virtual DOM element into a container, and subscribes to the
-   * re-render function. When the state changes, the component will be
-   * re-rendered.
-   *
-   * @param el - The virtual DOM element to render. Can be a string, number,
-   *             or an object representing an HTML element with props and children.
-   * @param container - The DOM container to which the element will be appended.
-   */
+/**
+ * Renders a virtual DOM element into a container, and subscribes to the
+ * re-render function. When the state changes, the component will be
+ * re-rendered.
+ *
+ * @param el - The virtual DOM element to render. Can be a string, number,
+ *             or an object representing an HTML element with props and children.
+ * @param container - The DOM container to which the element will be appended.
+ */
 export const render = (el: Renderable, container: HTMLElement): void => {
   rootComponent = el;
   rootNode = container;
   interRender(el(), container);
+  runEffects();
 
   subscribe(() => {
     reRender();
@@ -112,6 +111,20 @@ export const subscribe = (callback: () => void) => {
     children?: Array<VElement | string | number>;
   }
 
+/**
+ * Recursively renders a virtual DOM element into a specified container.
+ *
+ * This function takes a virtual DOM element, which can be either a string,
+ * number, or an object representation with a tag, properties, and children.
+ * It converts the virtual element into a real DOM node and appends it to the
+ * provided container. For string and number elements, it creates text nodes.
+ * For object elements, it creates a DOM element based on the specified tag,
+ * sets its properties, and recursively renders its children.
+ *
+ * @param el - The virtual DOM element to render. Can be a string, number,
+ *             or an object with a tag, props, and children.
+ * @param container - The DOM container to which the element will be appended.
+ */
   export const interRender = (el: VElement | string | number, container: HTMLElement): void => {
     let domEl: HTMLElement | Text;
     if (typeof el === 'string' ) {
@@ -136,24 +149,15 @@ export const subscribe = (callback: () => void) => {
     container.appendChild(domEl);
   };
 
-
 /**
- * Re-renders the root component into the root node.
+ * Re-renders the root component by computing and applying differences between
+ * the current virtual DOM and the root DOM node.
  *
- * Clears the current content of the root node and resets the application
- * state cursor. Then, it calls `interRender` to render the root component
- * again. This function is typically called when the state changes to update
- * the UI.
+ * This function resets the application state cursor, creates a new virtual DOM
+ * tree by rendering the root component, and calculates the differences between
+ * this new virtual DOM and the existing DOM. It then applies these changes to
+ * update the actual DOM, ensuring that only the necessary updates are performed.
  */
-// export const reRender = () => {
-//   if (rootComponent && rootNode) {
-//     rootNode.innerHTML = ''; // Clear the root node
-//     appStateCursor = 0;
-//     interRender(rootComponent(), rootNode); // Re-render the component
-//   }
-// };
-
-/// rerender 2 
 export const reRender = (): void => {
   if (rootComponent && rootNode) {
     // Reset the state cursor before re-rendering
@@ -172,122 +176,129 @@ export const reRender = (): void => {
     // Apply the changes to the actual DOM
     apply(changes, rootNode);
 
-    rootNode.innerHTML = "";
-    rootNode.appendChild(newHTML.firstChild);
+    runEffects();
   }
 };
 
-///// ------ state management ---------
+/**
+ * Creates a reactive state atom that can be used to store and retrieve state.
+ * When the state is updated, all subscribers to the state will be notified.
+ *
+ * @param initialState - The initial state to store in the atom.
+ * @return A tuple containing a reactive state proxy and a setter function.
+ * The reactive state proxy can be used to get and set the state, and the setter
+ * function can be used to update the state.
+ */
+interface StateObject<T> {
+  value: T;
+}
+type SetState<T> = (newValue: T) => void;
+
 let state: Array<any> = [];
 let subscribers: Array<() => void> = [];
 let appStateCursor = 0;
-export const useState = (initialState) => {
+/**
+ * Creates a reactive state atom that can be used to store and manage state within a component.
+ *
+ * The state is stored in an array, and each call to `useState` returns a proxy object along
+ * with a setter function. The proxy object allows access to the current state value, while
+ * the setter function allows updating the state. When the state is updated, all subscribers
+ * to the state are notified, triggering re-renders.
+ *
+ * @template T - The type of the state value.
+ * @param initialState - The initial state value to be stored.
+ * @returns A tuple containing a reactive state proxy and a setter function. The proxy
+ *          object provides access to the state value, and the setter function allows
+ *          updating the state.
+ */
+export const useState = <T>(initialState: T): [StateObject<T>, SetState<T>] => {
   const stateCursor = appStateCursor;
-  state[stateCursor] = state[stateCursor] || initialState;
+  state[stateCursor] = state[stateCursor] ?? initialState;
 
-  console.log(`useState is initialized at cursor ${stateCursor} with value:`,state);
+  const proxyState: StateObject<T> = new Proxy(
+    { value: state[stateCursor] },
+    {
+      get(target, prop) {
+        if (prop === "value") return target.value;
+      },
+      set(target, prop, newValue) {
+        if (prop === "value") {
+          target.value = newValue;
+          state[stateCursor] = newValue;
+          subscribers.forEach((subscriber) => subscriber()); // Trigger re-renders
+          return true;
+        }
+        return false;
+      },
+    }
+  );
 
-  const setState = (newState) => {
-    console.log("state")
-    state[stateCursor] = newState;
-
-    subscribers.forEach((subscriber) => subscriber()); 
-  };
-  
   appStateCursor++;
-  console.log(`stateDump`, state);
-  return [state[stateCursor], setState];
+
+  return [proxyState, (newValue: T) => (proxyState.value = newValue)];
 };
 
-//// ----------- diff ---------
+let effects: Array<{ deps: any[]; effect: () => void | (() => void) | undefined; cleanup?: () => void; hasChanged: boolean }> = [];
+let effectCursor = 0;
 
-// const diff = (oldEl: VElement | string | number, newEl: VElement | string | number, actualNode: HTMLElement): void => {
-//   // Case 1: Different Types
-//   if (typeof oldEl !== typeof newEl || (typeof oldEl === 'object' && oldEl.tag !== newEl.tag)) {
-//     console.log('Different Types');
-//     actualNode.innerHTML = ''; // Tear down the old subtree
-//     interRender(newEl, actualNode); // Re-render the new subtree
-//     return;
-//   }
+/**
+ * Registers an effect to be run after each render. The effect may optionally
+ * depend on some values, in which case it will only be run if one of the
+ * dependencies has changed since the previous render.
+ *
+ * @param effect - The effect to run after each render. The effect
+ *   may return a cleanup function, which will be run before the effect is
+ *   applied again.
+ * @param deps - An optional list of dependencies. If specified, the effect will
+ *   only be run if one of the dependencies has changed since the previous render.
+ */
+export const useEffect = (effect: () => void | (() => void), deps?: any[]) => {
+  const currentCursor = effectCursor;
 
-//   // Case 2: Same Elements (update props and children)
-//   if (typeof oldEl === 'object' && typeof newEl === 'object' && oldEl.tag === newEl.tag) {
-//     console.log('Same Elements');
-//     updateElement(oldEl, newEl, actualNode);
-//     return;
-//   }
+  if (!effects[currentCursor]) {
+    // First time running: Store the effect and dependencies
+    effects[currentCursor] = { effect, deps, cleanup: undefined, hasChanged: true };
+  } else {
+    const prevDeps = effects[currentCursor].deps;
+    
+    const hasChanged =
+    prevDeps === undefined || 
+    !Array.isArray(prevDeps) || 
+    (Array.isArray(prevDeps) && prevDeps.length > 0 && prevDeps.some((dep, i) => dep !== deps?.[i]));
 
-//   // Case 3: Component Update
-//   if (typeof oldEl === 'function' && typeof newEl === 'function') {
-//     console.log('Component Update');
-//     updateComponent(oldEl, newEl, actualNode);
-//     return;
-//   }
+    if (hasChanged) {
+      if (effects[currentCursor].cleanup) {
+        effects[currentCursor].cleanup(); // Run cleanup function before applying new effect
+      }
+      effects[currentCursor].hasChanged = hasChanged;
+      effects[currentCursor].effect = effect;
+      effects[currentCursor].deps = deps;
+    }
+  }
 
-//   // Case 4: Children (recursively diff and update)
-//   if (typeof oldEl === 'object' && typeof newEl === 'object' && oldEl.children && newEl.children) {
-//     console.log('Children');
-//     updateChildren(oldEl.children, newEl.children, actualNode);
-//     return;
-//   }
-// };
+  effectCursor++;
+};
 
+/**
+ * Runs all effects that have been registered with `useEffect` and resets their
+ * state. This should be called after each render.
+ *
+ * @remarks
+ * `runEffects` iterates over all effects that have been registered with
+ * `useEffect` and checks if they need to be run based on their dependencies.
+ * When an effect is run, its cleanup function is also stored so that it can
+ * be run when the component is updated or unmounted.
+ *
+ * After all effects have been run, the effect cursor is reset to 0 so that
+ * the next render can start registering new effects.
+ */
+export const runEffects = () => {
+  effects.forEach((entry) => {
+    if (entry.effect && entry.hasChanged) {
+      entry.cleanup = entry.effect() || undefined;
+      entry.hasChanged = false;
+    }
+  });
 
-// const updateElement = (oldEl: VElement, newEl: VElement, actualNode: HTMLElement): void => {
-//   const domEl = actualNode.firstChild as HTMLElement;
-
-//   // Update props
-//   const oldProps = oldEl.props || {};
-//   const newProps = newEl.props || {};
-
-//   // Remove old props that are not in new props
-//   Object.keys(oldProps).forEach((prop) => {
-//     if (!(prop in newProps)) {
-//       domEl.removeAttribute(prop);
-//     }
-//   });
-
-//   // Add or update new props
-//   Object.keys(newProps).forEach((prop) => {
-//     if (oldProps[prop] !== newProps[prop]) {
-//       domEl[prop] = newProps[prop];
-//     }
-//   });
-
-//   // Recursively diff children
-//   if (oldEl.children && newEl.children) {
-//     // updateChildren(oldEl.children, newEl.children, domEl);
-//     array.forEach(element => {
-      
-//     });
-//   }
-// };
-
-// const updateComponent = (oldEl: Function, newEl: Function, actualNode: HTMLElement): void => {
-//   const oldProps = oldEl.props || {};
-//   const newProps = newEl.props || {};
-
-//   if (oldProps !== newProps) {
-//     actualNode.innerHTML = ''; // Clear the actualNode
-//     interRender(newEl(newProps), actualNode); // Re-render the component with new props
-//   }
-// };
-
-// const updateChildren = (oldChildren: Array<VElement | string | number>, newChildren: Array<VElement | string | number>, actualNode: HTMLElement): void => {
-//   const maxLength = Math.max(oldChildren.length, newChildren.length);
-
-//   for (let i = 0; i < maxLength; i++) {
-//     const oldChild = oldChildren[i];
-//     const newChild = newChildren[i];
-
-//     if (oldChild && newChild) {
-//       diff(oldChild, newChild, actualNode);
-//     } else if (newChild) {
-//       // New child added
-//       interRender(newChild, actualNode);
-//     } else if (oldChild) {
-//       // Old child removed
-//       actualNode.removeChild(actualNode.childNodes[i]);
-//     }
-//   }
-// };
+  effectCursor = 0;
+};
