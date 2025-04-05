@@ -1,9 +1,17 @@
 {
+  "name": "pact-lib",
+  "version": "1.0.0",
+  "main": "dist/pact-lib.umd.js",
+  "module": "dist/pact-lib.es.js",
+  "types": "dist/index.d.ts",
   "scripts": {
-   "dev": "tsc -w"
-},
-
+    "dev": "vite",
+    "build": "vite build"
+  },
   "devDependencies": {
-    "typescript": "^5.8.2"
+    "@types/node": "^22.14.0",
+    "tsc-alias": "^1.8.13",
+    "typescript": "^5.8.3",
+    "vite": "^6.2.5"
   }
 }

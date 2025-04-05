@@ -1,4 +1,4 @@
-import { PAct , useState, useEffect} from "./PAct.js";
+import { PAct , useState, useEffect} from "@/PAct";
 
 
 export const App = () => {

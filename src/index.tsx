@@ -1,4 +1,4 @@
-import { PAct,render } from './PAct.js';
-import { App } from './App.js';
+import { PAct,render } from '@/PAct';
+import { App } from '@/App';
 
 render(App, document.getElementById('myapp'));
