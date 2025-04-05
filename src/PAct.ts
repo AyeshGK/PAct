@@ -162,6 +162,7 @@ export const reRender = (): void => {
   if (rootComponent && rootNode) {
     // Reset the state cursor before re-rendering
     appStateCursor = 0;
+    effectCursor = 0;
 
     // Create a new virtual DOM tree
     const newHTML = document.createElement('div');
@@ -170,6 +171,7 @@ export const reRender = (): void => {
     // Render the component into the new virtual DOM tree
     interRender(rootComponent(), newHTML);
 
+    debugger;
     // Compute the differences between the new and old DOM
     const changes = diff(newHTML, rootNode);
 
@@ -238,6 +240,20 @@ export const useState = <T>(initialState: T): [StateObject<T>, SetState<T>] => {
   return [proxyState, (newValue: T) => (proxyState.value = newValue)];
 };
 
+
+const shouldRunEffect = (prevDeps: any[], deps: any[]) => {
+  // Run if no deps provided (just like React)
+  if (deps === undefined) return true;
+
+  // First render or previous deps are not valid
+  if (!Array.isArray(prevDeps)) return true;
+
+  // Compare each dep shallowly
+  if (prevDeps.length !== deps.length) return true;
+
+  return deps.some((dep, i) => dep !== prevDeps[i]);
+};
+
 let effects: Array<{ deps: any[]; effect: () => void | (() => void) | undefined; cleanup?: () => void; hasChanged: boolean }> = [];
 let effectCursor = 0;
 
@@ -261,10 +277,12 @@ export const useEffect = (effect: () => void | (() => void), deps?: any[]) => {
   } else {
     const prevDeps = effects[currentCursor].deps;
     
-    const hasChanged =
-    prevDeps === undefined || 
-    !Array.isArray(prevDeps) || 
-    (Array.isArray(prevDeps) && prevDeps.length > 0 && prevDeps.some((dep, i) => dep !== deps?.[i]));
+    // const hasChanged =
+    // prevDeps === undefined || 
+    // !Array.isArray(prevDeps) || 
+    // (Array.isArray(prevDeps) && prevDeps.length > 0 && prevDeps.some((dep, i) => dep !== deps?.[i]));
+
+    const hasChanged = shouldRunEffect(prevDeps, deps);
 
     if (hasChanged) {
       if (effects[currentCursor].cleanup) {
@@ -275,6 +293,8 @@ export const useEffect = (effect: () => void | (() => void), deps?: any[]) => {
       effects[currentCursor].deps = deps;
     }
   }
+
+  console.log("effects :", effects);
 
   effectCursor++;
 };
@@ -295,8 +315,8 @@ export const useEffect = (effect: () => void | (() => void), deps?: any[]) => {
 export const runEffects = () => {
   effects.forEach((entry) => {
     if (entry.effect && entry.hasChanged) {
-      entry.cleanup = entry.effect() || undefined;
       entry.hasChanged = false;
+      entry.cleanup = entry.effect() || undefined;
     }
   });
 
